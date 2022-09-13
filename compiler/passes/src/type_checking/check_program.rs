@@ -74,8 +74,6 @@ impl<'a> ProgramVisitor<'a> for TypeChecker<'a> {
         }
 
         for CircuitMember::CircuitVariable(v, type_) in input.members.iter() {
-            // Ensure there are no tuple typed members.
-            self.assert_not_tuple(v.span, type_);
             // Ensure that there are no record members.
             self.assert_member_is_not_record(v.span, input.identifier.name, type_);
         }
