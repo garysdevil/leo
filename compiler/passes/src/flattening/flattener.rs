@@ -16,10 +16,7 @@
 
 use crate::{Assigner, SymbolTable};
 
-use leo_ast::{
-    AccessExpression, CircuitMember, Expression, ExpressionReconstructor, Identifier, Statement, TernaryExpression,
-    Type,
-};
+use leo_ast::{Circuit, Expression, ExpressionReconstructor, Identifier, Statement, TernaryExpression};
 use leo_span::Symbol;
 
 use indexmap::IndexMap;
@@ -44,6 +41,10 @@ pub struct Flattener<'a> {
     /// Note that finalizes are inserted in the order they are encountered during a pre-order traversal of the AST.
     /// Note that type checking guarantees that there is at most one finalize in a basic block.
     pub(crate) finalizes: Vec<Vec<(Option<Expression>, Expression)>>,
+    /// A mapping between circuit names and flattened circuit declarations.
+    pub(crate) flattened_circuits: IndexMap<Symbol, Circuit>,
+    /// A mapping between variables and flattened tuple expressions.
+    pub(crate) flattened_tuples: IndexMap<Symbol, Vec<Expression>>,
 }
 
 impl<'a> Flattener<'a> {
@@ -55,6 +56,8 @@ impl<'a> Flattener<'a> {
             condition_stack: Vec::new(),
             returns: Vec::new(),
             finalizes: Vec::new(),
+            flattened_circuits: IndexMap::new(),
+            flattened_tuples: IndexMap::new(),
         }
     }
 
@@ -84,7 +87,7 @@ impl<'a> Flattener<'a> {
         // Helper to construct and store ternary assignments. e.g `$ret$0 = $var$0 ? $var$1 : $var$2`
         let mut construct_ternary_assignment = |guard: Expression, if_true: Expression, if_false: Expression| {
             let place = Identifier {
-                name: self.assigner.unique_symbol(prefix),
+                name: self.assigner.unique_symbol(prefix, "$"),
                 span: Default::default(),
             };
             let (value, stmts) = self.reconstruct_ternary(TernaryExpression {

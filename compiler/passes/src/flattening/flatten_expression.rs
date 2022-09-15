@@ -27,6 +27,7 @@ use leo_ast::{
 impl ExpressionReconstructor for Flattener<'_> {
     type AdditionalOutput = Vec<Statement>;
 
+    // TODO: Document reduction of nested tuples
     /// Reconstructs ternary expressions over tuples and circuits, accumulating any statements that are generated.
     /// This is necessary because Aleo instructions does not support ternary expressions over composite data types.
     /// For example, the ternary expression `cond ? (a, b) : (c, d)` is flattened into the following:
