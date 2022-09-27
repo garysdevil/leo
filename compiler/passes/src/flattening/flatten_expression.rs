@@ -18,14 +18,103 @@ use crate::Flattener;
 use itertools::Itertools;
 
 use leo_ast::{
-    AccessExpression, CircuitExpression, CircuitMember, CircuitVariableInitializer, Expression,
-    ExpressionReconstructor, MemberAccess, Statement, TernaryExpression, TupleExpression,
+    AccessExpression, AssociatedFunction, Circuit, CircuitExpression, CircuitMember, CircuitVariableInitializer,
+    Expression, ExpressionReconstructor, MemberAccess, Statement, TernaryExpression, TupleExpression,
 };
 
 // TODO: Clean up logic. To be done in a follow-up PR (feat/tuples)
 
 impl ExpressionReconstructor for Flattener<'_> {
     type AdditionalOutput = Vec<Statement>;
+
+    /// Replaces a tuple access expression with the appropriate expression.
+    fn reconstruct_access(&mut self, input: AccessExpression) -> (Expression, Self::AdditionalOutput) {
+        let mut statements = Vec::new();
+        (
+            match input {
+                AccessExpression::AssociatedFunction(function) => {
+                    Expression::Access(AccessExpression::AssociatedFunction(AssociatedFunction {
+                        ty: function.ty,
+                        name: function.name,
+                        args: function
+                            .args
+                            .into_iter()
+                            .map(|arg| self.reconstruct_expression(arg).0)
+                            .collect(),
+                        span: function.span,
+                    }))
+                }
+                AccessExpression::Member(member) => Expression::Access(AccessExpression::Member(MemberAccess {
+                    inner: Box::new(self.reconstruct_expression(*member.inner).0),
+                    name: member.name,
+                    span: member.span,
+                })),
+                AccessExpression::Tuple(tuple) => {
+                    // Reconstruct the tuple expression.
+                    let (expr, stmts) = self.reconstruct_expression(*tuple.tuple);
+
+                    // Accumulate any statements produced.
+                    statements.extend(stmts);
+
+                    // Lookup the expression in the tuple map.
+                    match expr {
+                        Expression::Identifier(identifier) => {
+                            // Note that this unwrap is safe since TYC guarantees that all tuples are declared and indices are valid.
+                            // In this pass, we add all tuple assignments to `self.tuples`.
+                            self.tuples.get(&identifier.name).unwrap()[tuple.index.to_usize()].clone()
+                        }
+                        _ => unreachable!("SSA guarantees that subexpressions are identifiers or literals."),
+                    }
+                }
+                expr => Expression::Access(expr),
+            },
+            statements,
+        )
+    }
+
+    /// Reconstructs a circuit init expression, flattening any tuples in the expression.
+    fn reconstruct_circuit_init(&mut self, input: CircuitExpression) -> (Expression, Self::AdditionalOutput) {
+        let mut statements = Vec::new();
+        let mut flattened_expressions = Vec::with_capacity(input.members.len());
+
+        // Reconstruct and flatten the argument expressions.
+        for member in input.members.into_iter() {
+            // Note that this unwrap is safe since SSA guarantees that all circuit variable initializers are of the form `<name>: <expr>`.
+            let (expr, stmts) = self.reconstruct_expression(member.expression.unwrap());
+            // Accumulate any statements produced.
+            statements.extend(stmts);
+            // Flatten the expression.
+            flattened_expressions.extend(self.flatten_subexpression(expr));
+        }
+
+        // Lookup the flattened definition of the circuit.
+        // Note that this unwrap is safe since TYC guarantees that all circuits are declared.
+        let circuit: &Circuit = self.flattened_circuits.get(&input.name.name).unwrap();
+
+        // Collect the names of the flattened circuit members.
+        let names = circuit
+            .members
+            .iter()
+            .map(|CircuitMember::CircuitVariable(identifier, _)| identifier)
+            .cloned();
+
+        let flattened_members = names
+            .zip_eq(flattened_expressions)
+            .map(|(identifier, expression)| CircuitVariableInitializer {
+                identifier,
+                expression: Some(expression),
+            })
+            .collect();
+
+        (
+            Expression::Circuit(CircuitExpression {
+                name: input.name,
+                members: flattened_members,
+                span: input.span,
+            }),
+            statements,
+        )
+    }
 
     // TODO: Document reduction of nested tuples
     /// Reconstructs ternary expressions over tuples and circuits, accumulating any statements that are generated.

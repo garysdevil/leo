@@ -18,7 +18,7 @@ use crate::StaticSingleAssigner;
 
 use leo_ast::{Block, Finalize, Function, FunctionConsumer, Program, ProgramConsumer, StatementConsumer};
 
-impl FunctionConsumer for StaticSingleAssigner {
+impl FunctionConsumer for StaticSingleAssigner<'_> {
     type Output = Function;
 
     /// Reconstructs the `Function`s in the `Program`, while allocating the appropriate `RenameTable`s.
@@ -83,7 +83,7 @@ impl FunctionConsumer for StaticSingleAssigner {
     }
 }
 
-impl ProgramConsumer for StaticSingleAssigner {
+impl ProgramConsumer for StaticSingleAssigner<'_> {
     type Output = Program;
 
     fn consume_program(&mut self, input: Program) -> Self::Output {
